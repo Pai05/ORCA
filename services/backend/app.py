@@ -1,0 +1,55 @@
+from fastapi import FastAPI, Request, HTTPException
+from pydantic import BaseModel
+import os
+import asyncio
+import json
+
+app = FastAPI(title="ORCA Backend (Member B - scaffold)")
+
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+
+
+class LogPayload(BaseModel):
+    _timestamp: str = None
+
+
+@app.post("/ingest/logs")
+async def ingest_logs(request: Request):
+    payload = await request.json()
+    # write to Redis stream logs:{ns}:{pod}
+    ns = payload.get("kubernetes", {}).get("namespace_name", "default")
+    pod = payload.get("kubernetes", {}).get("pod_name", "unknown")
+    stream_key = f"logs:{ns}:{pod}"
+
+    try:
+        import redis.asyncio as redis_async
+
+        r = redis_async.from_url(REDIS_URL, decode_responses=True)
+        # store raw JSON under 'event'
+        await r.xadd(stream_key, {"event": json.dumps(payload)}, maxlen=1000, approximate=True)
+        return {"status": "ok", "stream": stream_key}
+    except Exception as e:
+        # never return 500 for ingest; return structured error
+        raise HTTPException(status_code=502, detail=str(e))
+
+
+@app.get("/health/llm")
+async def health_llm():
+    # stub: Integration Lead will wire actual Ollama health
+    return {"status": "ok", "model": "mistral", "available": False}
+
+
+@app.post("/nlp/explain")
+async def nlp_explain(body: dict):
+    incident_id = body.get("incident_id")
+    if not incident_id:
+        raise HTTPException(status_code=400, detail="missing incident_id")
+
+    # For now return templated fallback until LLM integration
+    return {"incident_id": incident_id, "summary": "LLM unavailable - fallback summary", "cause": "N/A", "recs": []}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    uvicorn.run("services.backend.app:app", host="127.0.0.1", port=8000, reload=True)
