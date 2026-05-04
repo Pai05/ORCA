@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, HTTPException
+from services.nlp.chain import explain_incident_safe
 from pydantic import BaseModel
 import os
 import asyncio
@@ -39,17 +40,41 @@ async def health_llm():
     return {"status": "ok", "model": "mistral", "available": False}
 
 
+@app.post("/incident/explain")
+async def explain(incident: dict):
+    explanation = explain_incident_safe(incident)
+    return explanation
+
+
 @app.post("/nlp/explain")
 async def nlp_explain(body: dict):
     incident_id = body.get("incident_id")
     if not incident_id:
         raise HTTPException(status_code=400, detail="missing incident_id")
 
-    # For now return templated fallback until LLM integration
-    return {"incident_id": incident_id, "summary": "LLM unavailable - fallback summary", "cause": "N/A", "recs": []}
+    # Extract incident data
+    incident = {
+        "summary": body.get("summary", "Unknown"),
+        "severity": body.get("severity", "warning"),
+        "confidence": body.get("confidence", 0.5),
+        "timestamp": body.get("timestamp"),
+        "meta": body.get("meta", {})
+    }
+
+    # Call NLP chain with fallback
+    explanation = explain_incident_safe(incident)
+    
+    return {
+        "incident_id": incident_id,
+        "summary": explanation.get("summary"),
+        "cause": explanation.get("cause"),
+        "recs": explanation.get("recs", []),
+        "confidence": explanation.get("confidence", 0.5)
+    }
 
 
 if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run("services.backend.app:app", host="127.0.0.1", port=8000, reload=True)
+print("Backend loaded")
