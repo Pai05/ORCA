@@ -19,7 +19,7 @@ spec:
       hostPID: true
       containers:
         - name: ebpf-agent
-          image: ghcr.io/iovisor/bcc:0.29.1
+          image: quay.io/iovisor/bcc:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             privileged: true
